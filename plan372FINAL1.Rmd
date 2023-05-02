@@ -1,0 +1,144 @@
+---
+title: "Vehicle CO2 Emissions"
+author: "Will Fleischer "
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: html_document
+css: style.css
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(dplyr)
+knitr::opts_chunk$set(echo = TRUE)
+options(stringsAsFactors = FALSE)
+options(scipen = 999)
+
+```
+# Introduction
+
+# Data
+source: https://www.epa.gov/automotive-trends/explore-automotive-trends-data#SummaryData
+```{r}
+#import data
+auto_trends = read.csv("table_export.csv")
+```
+
+```{r}
+#tidy data:
+#selecting variables we want to look at
+auto_trends2 = select(auto_trends, "Model.Year", "Manufacturer", "Vehicle.Type", "Production.Share", "Real.World.MPG", "Real.World.CO2..g.mi.")
+auto_trends3 = rename(auto_trends2,
+                      "model_year" = "Model.Year",
+                      "manufacturer" = "Manufacturer",
+                      "production_share" = "Production.Share",
+                      "mpg" = "Real.World.MPG",
+                      "co2" = "Real.World.CO2..g.mi.",
+                      "vehicle_type" = "Vehicle.Type")
+
+#filtering data to remove NA values and rows with incomplete data, which have "-" in their cell
+auto_trends4 = filter(auto_trends3, !is.na(model_year)) %>%
+  filter(!is.na(manufacturer)) %>%
+  filter(!is.na(production_share)) %>%
+  filter(!is.na(mpg)) %>%
+  filter(!is.na(co2)) %>%
+  filter(!is.na(vehicle_type)) %>%
+  filter(model_year != "-" & manufacturer != "-" & 
+           production_share != "-" & mpg != "-" & 
+           co2 != "-" & vehicle_type != "-")
+
+#all values in dataset are data type chr, changing numeric values to dbl
+auto_trends5 = auto_trends4 %>% 
+  mutate_at(c('model_year', 'production_share', "mpg", 'co2'), as.numeric)
+
+# the data contains data for all car manufacturers grouped together per year, as well as
+# data for individual manufacturers. We are going to separate these in to two tables
+auto_trends_clean = auto_trends5 %>%
+  filter(manufacturer != "All")
+
+auto_trends_all_clean = auto_trends5 %>%
+  filter(manufacturer == "All")
+
+#clean data that we will mainly be using
+head(auto_trends_clean)
+```
+
+```{r}
+#plotting to see average co2 emissions for each manufacturer
+#tesla, as the only representative of electric vehicles in this dataset, is shown having 0 CO2 emissions
+ggplot(data = auto_trends_clean,
+       mapping = aes(x = manufacturer, y = co2)) + 
+  geom_boxplot() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + 
+  ylab("Mean CO2 Emissions")
+```
+
+
+```{r}
+#for this graph, we don't want All, All Car, or All Truck represented
+
+filtered_vehicle_types = auto_trends_clean %>%
+  filter(vehicle_type != "All" & vehicle_type != "All Car" & vehicle_type != "All Truck")
+
+ggplot(data = filtered_vehicle_types,
+       mapping = aes(x = model_year, y = co2, color = vehicle_type)) +
+  geom_smooth() + ylab("CO2 emissions") + xlab("Year") + labs(color='Vehicle Type') 
+
+
+ggplot(data = auto_trends_clean,
+       mapping = aes(x = model_year,
+                     y = co2,
+                     color = manufacturer)) + 
+  geom_smooth() + ylab("CO2 emissions") + xlab("Year") + labs(color = "Manufacturer")
+
+```
+
+```{r message=FALSE}
+#looking to see what vehicle types are the most popuar
+filtered_vehicle_types$model_year = factor(filtered_vehicle_types$model_year)
+
+sum_data = filtered_vehicle_types %>%
+  group_by(model_year, vehicle_type) %>%
+  summarize(total_share = sum(production_share))
+
+ggplot(sum_data, aes(x = model_year, y = total_share, group = vehicle_type)) + 
+  geom_line(aes(color = vehicle_type)) +
+  scale_color_discrete(name = "Vehicle Type")+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + scale_x_discrete(breaks = seq(1975, 2021, by = 5)) + xlab("Year") + ylab("Production Share")
+```
+
+```{r}
+#looking at co2 emissions by year
+year_co2 = auto_trends_clean %>%
+  group_by(model_year) %>%
+  summarize(mean_co2 = mean(co2))
+
+ggplot(data = year_co2,
+       aes(x = model_year,
+           y = (mean_co2))) + 
+  geom_point() + geom_smooth() + xlab("Year") + ylab("Mean CO2 Emissions")
+
+#looking at mpg by year
+year_mpg = auto_trends_clean %>%
+  group_by(model_year) %>%
+  summarize(mean_mpg = mean(mpg))
+
+ggplot(data = year_mpg,
+       aes(x = model_year,
+           y = mean_mpg)) + 
+  geom_point() + geom_smooth() + xlab("Year") + ylab("Mean MPG")
+```
+
+```{r}
+mod1 = lm(co2~mpg * vehicle_type, data = filtered_vehicle_types)
+summary(mod1)
+
+```
+
+```{r}
+present = filter(filtered_vehicle_types, model_year == 2021)
+
+present2 = present %>% group_by(vehicle_type) %>%
+  summarize(co2_weighted_avg = weighted.mean(co2, production_share))
+
+arrange(present2, desc(co2_weighted_avg))
+```
+
+
